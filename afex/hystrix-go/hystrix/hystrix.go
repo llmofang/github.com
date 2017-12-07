@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-type runFunc func() error
+type RunFunc func() error
 type fallbackFunc func(error) error
 
 // A CircuitError is an error which models various failure states of execution,
@@ -31,7 +31,7 @@ type command struct {
 	finished     chan bool
 	fallbackOnce *sync.Once
 	circuit      *CircuitBreaker
-	run          runFunc
+	run          RunFunc
 	fallback     fallbackFunc
 	runDuration  time.Duration
 	events       []string
@@ -52,7 +52,7 @@ var (
 // new calls to it for you to give the dependent service time to repair.
 //
 // Define a fallback function if you want to define some code to execute during outages.
-func Go(name string, run runFunc, fallback fallbackFunc) chan error {
+func Go(name string, run RunFunc, fallback fallbackFunc) chan error {
 	cmd := &command{
 		run:          run,
 		fallback:     fallback,
@@ -146,7 +146,7 @@ func Go(name string, run runFunc, fallback fallbackFunc) chan error {
 
 // Do runs your function in a synchronous manner, blocking until either your function succeeds
 // or an error is returned, including hystrix circuit errors
-func Do(name string, run runFunc, fallback fallbackFunc) error {
+func Do(name string, run RunFunc, fallback fallbackFunc) error {
 	done := make(chan struct{}, 1)
 
 	r := func() error {
