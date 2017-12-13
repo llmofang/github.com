@@ -253,7 +253,12 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			// select on the flusher ticker channel, too
 			memoryMsgChan = subChannel.memoryMsgChan
 			backendMsgChan = subChannel.backend.ReadChan()
-			flusherChan = outputBufferTicker.C
+			//added by dzhyun.xm, 20170929
+			if client.DisableFin {
+				flusherChan = nil
+			} else {
+				flusherChan = outputBufferTicker.C
+			}
 		}
 
 		select {
@@ -310,11 +315,18 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			msg.Attempts++
 
-			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+			//added by dzhyun.xm, 20170928
+			if !client.DisableFin {
+				subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+			}
 			client.SendingMessage()
 			err = p.SendMessage(client, msg, &buf)
 			if err != nil {
 				goto exit
+			}
+			//added by dzhyun.xm, 20170928
+			if client.DisableFin {
+				client.FinishedMessage()
 			}
 			flushed = false
 		case msg := <-memoryMsgChan:
@@ -323,13 +335,41 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			msg.Attempts++
 
-			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
-			client.SendingMessage()
-			err = p.SendMessage(client, msg, &buf)
-			if err != nil {
-				goto exit
+			//added by dzhyun.xm, 20170929
+			if client.DisableFin {
+				batch_size := 200
+				sent_num := 0
+				for msg != nil && sent_num < batch_size {
+					client.SendingMessage()
+					err = p.SendMessage(client, msg, &buf)
+					if err != nil {
+						goto exit
+					}
+					client.FinishedMessage()
+					sent_num++
+					if len(memoryMsgChan) > 0 {
+						msg = <-memoryMsgChan
+					} else {
+						msg = nil
+					}
+				}
+				client.writeLock.Lock()
+				err = client.Flush()
+				client.writeLock.Unlock()
+				if err != nil {
+					goto exit
+				}
+				flushed = true
+			} else {
+				subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+				client.SendingMessage()
+				err = p.SendMessage(client, msg, &buf)
+				if err != nil {
+					goto exit
+				}
+				flushed = false
 			}
-			flushed = false
+
 		case <-client.ExitChan:
 			goto exit
 		}
@@ -669,6 +709,11 @@ func (p *protocolV2) RDY(client *clientV2, params [][]byte) ([]byte, error) {
 }
 
 func (p *protocolV2) FIN(client *clientV2, params [][]byte) ([]byte, error) {
+	//added by dzhyun.xm, 20170928
+	if client.DisableFin {
+		return nil, nil
+	}
+
 	state := atomic.LoadInt32(&client.State)
 	if state != stateSubscribed && state != stateClosing {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot FIN in current state")
@@ -695,6 +740,11 @@ func (p *protocolV2) FIN(client *clientV2, params [][]byte) ([]byte, error) {
 }
 
 func (p *protocolV2) REQ(client *clientV2, params [][]byte) ([]byte, error) {
+	//added by dzhyun.xm, 20170928
+	if client.DisableFin {
+		return nil, nil
+	}
+
 	state := atomic.LoadInt32(&client.State)
 	if state != stateSubscribed && state != stateClosing {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot REQ in current state")
@@ -800,6 +850,11 @@ func (p *protocolV2) PUB(client *clientV2, params [][]byte) ([]byte, error) {
 		return nil, protocol.NewFatalClientErr(err, "E_PUB_FAILED", "PUB failed "+err.Error())
 	}
 
+	//added by dzhyun.xm, 20170929
+	if client.DisableFin {
+		return nil, nil
+	}
+
 	return okBytes, nil
 }
 
@@ -849,6 +904,11 @@ func (p *protocolV2) MPUB(client *clientV2, params [][]byte) ([]byte, error) {
 	err = topic.PutMessages(messages)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_MPUB_FAILED", "MPUB failed "+err.Error())
+	}
+
+	//added by dzhyun.xm, 20170929
+	if client.DisableFin {
+		return nil, nil
 	}
 
 	return okBytes, nil
@@ -911,6 +971,11 @@ func (p *protocolV2) DPUB(client *clientV2, params [][]byte) ([]byte, error) {
 	err = topic.PutMessage(msg)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_DPUB_FAILED", "DPUB failed "+err.Error())
+	}
+
+	//added by dzhyun.xm, 20170929
+	if client.DisableFin {
+		return nil, nil
 	}
 
 	return okBytes, nil

@@ -14,6 +14,8 @@ import (
 	"github.com/nsqio/nsq/internal/lg"
 	"github.com/nsqio/nsq/internal/pqueue"
 	"github.com/nsqio/nsq/internal/quantile"
+	"regexp"
+	"strconv"
 )
 
 type Consumer interface {
@@ -74,10 +76,21 @@ type Channel struct {
 func NewChannel(topicName string, channelName string, ctx *context,
 	deleteCallback func(*Channel)) *Channel {
 
+	//added by dzhyun.xm, 20170928
+	memQueueSize := ctx.nsqd.getOpts().MemQueueSize
+	r, _ := regexp.Compile(`.+?\.M(\d+)(#ephemeral)?$`)
+	m := r.FindStringSubmatch(channelName)
+	if m != nil && len(m) > 1 {
+		n, err := strconv.Atoi(m[1])
+		if err == nil {
+			memQueueSize = int64(n)
+		}
+	}
+
 	c := &Channel{
 		topicName:      topicName,
 		name:           channelName,
-		memoryMsgChan:  make(chan *Message, ctx.nsqd.getOpts().MemQueueSize),
+		memoryMsgChan:  make(chan *Message, memQueueSize),
 		clients:        make(map[int64]Consumer),
 		deleteCallback: deleteCallback,
 		ctx:            ctx,

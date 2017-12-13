@@ -277,6 +277,27 @@ exit:
 	return err
 }
 
+//added by dzhyun.xm, 20170929
+func (c *Conn) WriteCommands(cmds []*Command) error {
+	var err error
+	c.mtx.Lock()
+	for _, cmd := range cmds {
+		_, err = cmd.WriteTo(c)
+		if err != nil {
+			goto exit
+		}
+	}
+	err = c.Flush()
+
+exit:
+	c.mtx.Unlock()
+	if err != nil {
+		c.log(LogLevelError, "IO error - %s", err)
+		c.delegate.OnIOError(c, err)
+	}
+	return err
+}
+
 type flusher interface {
 	Flush() error
 }
@@ -375,9 +396,10 @@ func (c *Conn) identify() (*IdentifyResponse, error) {
 
 	// now that connection is bootstrapped, enable read buffering
 	// (and write buffering if it's not already capable of Flush())
-	c.r = bufio.NewReader(c.r)
+	//added by dzhyun.xm, 20170929
+	c.r = bufio.NewReaderSize(c.r, 16384)
 	if _, ok := c.w.(flusher); !ok {
-		c.w = bufio.NewWriter(c.w)
+		c.w = bufio.NewWriterSize(c.w, 16384)
 	}
 
 	return resp, nil
@@ -554,6 +576,8 @@ exit:
 }
 
 func (c *Conn) writeLoop() {
+	//added by dzhyun.xm, 20170928
+	disableFin := strings.HasSuffix(c.config.UserAgent, "disable-fin")
 	for {
 		select {
 		case <-c.exitChan:
@@ -586,11 +610,14 @@ func (c *Conn) writeLoop() {
 				}
 			}
 
-			err := c.WriteCommand(resp.cmd)
-			if err != nil {
-				c.log(LogLevelError, "error sending command %s - %s", resp.cmd, err)
-				c.close()
-				continue
+			//added by dzhyun.xm, 20170928
+			if !disableFin {
+				err := c.WriteCommand(resp.cmd)
+				if err != nil {
+					c.log(LogLevelError, "error sending command %s - %s", resp.cmd, err)
+					c.close()
+					continue
+				}
 			}
 
 			if msgsInFlight == 0 &&

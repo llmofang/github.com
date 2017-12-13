@@ -178,6 +178,10 @@ type Config struct {
 
 	// secret for nsqd authentication (requires nsqd 0.2.29+)
 	AuthSecret string `opt:"auth_secret"`
+
+	//added by dzhyun.xm, 20170929
+	ProducerChannelSize int `opt:"producer_channel_size" min:"1" default:"1000"`
+	ProducerBatchSize   int `opt:"producer_batch_size" min:"1" default:"200"`
 }
 
 // NewConfig returns a new default nsq configuration.

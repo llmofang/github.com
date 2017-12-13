@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +16,8 @@ type producerConn interface {
 	Connect() (*IdentifyResponse, error)
 	Close() error
 	WriteCommand(*Command) error
+	//added by dzhyun.xm, 20170929
+	WriteCommands([]*Command) error
 }
 
 // Producer is a high-level type to publish to NSQ.
@@ -45,6 +48,8 @@ type Producer struct {
 	exitChan            chan int
 	wg                  sync.WaitGroup
 	guard               sync.Mutex
+
+	delegate ProducerDelegate
 }
 
 // ProducerTransaction is returned by the async publish methods
@@ -82,13 +87,17 @@ func NewProducer(addr string, config *Config) (*Producer, error) {
 
 		logger: log.New(os.Stderr, "", log.Flags()),
 		logLvl: LogLevelInfo,
-
-		transactionChan: make(chan *ProducerTransaction),
+		//added by dzhyun.xm, 20170929
+		transactionChan: make(chan *ProducerTransaction, config.ProducerChannelSize),
 		exitChan:        make(chan int),
 		responseChan:    make(chan []byte),
 		errorChan:       make(chan []byte),
 	}
 	return p, nil
+}
+
+func (w *Producer) SetDelegate(d ProducerDelegate) {
+	w.delegate = d
 }
 
 // Ping causes the Producer to connect to it's configured nsqd (if not already
@@ -305,20 +314,57 @@ func (w *Producer) close() {
 	}()
 }
 
+func min(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (w *Producer) router() {
+	//added by dzhyun.xm, 20170929
+	disableFin := strings.HasSuffix(w.config.UserAgent, "disable-fin")
 	for {
 		select {
 		case t := <-w.transactionChan:
-			w.transactions = append(w.transactions, t)
-			err := w.conn.WriteCommand(t.cmd)
+			//added by dzhyun.xm, 20170929
+			if !disableFin {
+				w.transactions = append(w.transactions, t)
+			}
+			var err error
+			if w.config.ProducerBatchSize > 1 {
+				if l := len(w.transactionChan); l > 0 {
+					batch := min(w.config.ProducerBatchSize-1, l)
+					cmds := make([]*Command, 0, batch)
+					cmds = append(cmds, t.cmd)
+					for i := 0; i < batch; i++ {
+						t := <-w.transactionChan
+						if !disableFin {
+							w.transactions = append(w.transactions, t)
+						}
+						cmds = append(cmds, t.cmd)
+					}
+					err = w.conn.WriteCommands(cmds)
+				} else {
+					err = w.conn.WriteCommand(t.cmd)
+				}
+			} else {
+				err = w.conn.WriteCommand(t.cmd)
+			}
+
 			if err != nil {
 				w.log(LogLevelError, "(%s) sending command - %s", w.conn.String(), err)
 				w.close()
 			}
 		case data := <-w.responseChan:
-			w.popTransaction(FrameTypeResponse, data)
+			if !disableFin {
+				w.popTransaction(FrameTypeResponse, data)
+
+			}
 		case data := <-w.errorChan:
-			w.popTransaction(FrameTypeError, data)
+			if !disableFin {
+				w.popTransaction(FrameTypeError, data)
+			}
 		case <-w.closeChan:
 			goto exit
 		case <-w.exitChan:
@@ -330,6 +376,9 @@ exit:
 	w.transactionCleanup()
 	w.wg.Done()
 	w.log(LogLevelInfo, "exiting router")
+	if w.delegate != nil {
+		w.delegate.OnClose(w)
+	}
 }
 
 func (w *Producer) popTransaction(frameType int32, data []byte) {

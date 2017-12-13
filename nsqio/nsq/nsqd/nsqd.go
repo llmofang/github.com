@@ -535,6 +535,12 @@ func (n *NSQD) GetTopic(topicName string) *Topic {
 		n.logf(LOG_ERROR, "no available nsqlookupd to query for channels to pre-create for topic %s", t.name)
 	}
 
+	//added by dzhyun.xm, 20170928
+	//add channel for keep topic queue empty
+	if strings.HasSuffix(topicName, ".dzhyun#ephemeral") {
+		t.getOrCreateChannel("_.M1#ephemeral")
+	}
+
 	t.Unlock()
 
 	// NOTE: I would prefer for this to only happen in topic.GetChannel() but we're special

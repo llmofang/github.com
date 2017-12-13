@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/nsqio/nsq/internal/auth"
+	"strings"
 )
 
 const defaultBufferSize = 16 * 1024
@@ -104,6 +105,11 @@ type clientV2 struct {
 
 	AuthSecret string
 	AuthState  *auth.State
+
+	//added by dzhyun.xm, 20170928
+	DisableFin bool   //specify whether client need at least once,
+					  //default: false, specify client need at least once,
+					  //client can disable, through config user-agent: disable-fin
 }
 
 func newClientV2(id int64, conn net.Conn, ctx *context) *clientV2 {
@@ -157,6 +163,8 @@ func (c *clientV2) Identify(data identifyDataV2) error {
 	c.ClientID = data.ClientID
 	c.Hostname = data.Hostname
 	c.UserAgent = data.UserAgent
+	//added by dzhyun.xm, 20170928
+	c.DisableFin = strings.HasSuffix(data.UserAgent, "disable-fin")
 	c.metaLock.Unlock()
 
 	err := c.SetHeartbeatInterval(data.HeartbeatInterval)

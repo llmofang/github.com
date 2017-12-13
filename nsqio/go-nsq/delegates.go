@@ -136,3 +136,16 @@ func (d *producerConnDelegate) OnResume(c *Conn)                      {}
 func (d *producerConnDelegate) OnIOError(c *Conn, err error)          { d.w.onConnIOError(c, err) }
 func (d *producerConnDelegate) OnHeartbeat(c *Conn)                   { d.w.onConnHeartbeat(c) }
 func (d *producerConnDelegate) OnClose(c *Conn)                       { d.w.onConnClose(c) }
+
+//add by dzhyun.xm 2017/11/17
+// ProducerDelegate is an interface of methods that are used as callbacks in Producer
+type ProducerDelegate interface {
+	// OnClose is called when the producer closes, after all cleanup
+	OnClose(*Producer)
+}
+
+type puberProducerDelegate struct {
+	p *Puber
+}
+
+func (d *puberProducerDelegate) OnClose(r *Producer) { d.p.onProducerClose(r) }

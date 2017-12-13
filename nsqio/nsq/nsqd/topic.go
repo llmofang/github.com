@@ -12,6 +12,8 @@ import (
 	"github.com/nsqio/nsq/internal/lg"
 	"github.com/nsqio/nsq/internal/quantile"
 	"github.com/nsqio/nsq/internal/util"
+	"regexp"
+	"strconv"
 )
 
 type Topic struct {
@@ -38,14 +40,29 @@ type Topic struct {
 	pauseChan chan bool
 
 	ctx *context
+
+	//added by dzhyun.xm, 20170928
+	dzhyun bool
 }
 
 // Topic constructor
 func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topic {
+
+	//added by dzhyun.xm, 20170928
+	memQueueSize := ctx.nsqd.getOpts().MemQueueSize
+	r, _ := regexp.Compile(`.*?\.M(\d+)(\.dzhyun#ephemeral|#ephemeral)?$`)
+	m := r.FindStringSubmatch(topicName)
+	if m != nil && len(m) > 1 {
+		n, err := strconv.Atoi(m[1])
+		if err == nil {
+			memQueueSize = int64(n)
+		}
+	}
+
 	t := &Topic{
 		name:              topicName,
 		channelMap:        make(map[string]*Channel),
-		memoryMsgChan:     make(chan *Message, ctx.nsqd.getOpts().MemQueueSize),
+		memoryMsgChan:     make(chan *Message, memQueueSize),
 		exitChan:          make(chan int),
 		channelUpdateChan: make(chan int),
 		ctx:               ctx,
@@ -55,6 +72,9 @@ func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topi
 	}
 
 	if strings.HasSuffix(topicName, "#ephemeral") {
+		if strings.HasSuffix(topicName, ".dzhyun#ephemeral") {
+			t.dzhyun = true
+		}
 		t.ephemeral = true
 		t.backend = newDummyBackendQueue()
 	} else {
@@ -155,7 +175,7 @@ func (t *Topic) DeleteExistingChannel(channelName string) error {
 	case <-t.exitChan:
 	}
 
-	if numChannels == 0 && t.ephemeral == true {
+	if numChannels == 0 && t.ephemeral == true && !t.dzhyun {
 		go t.deleter.Do(func() { t.deleteCallback(t) })
 	}
 

@@ -76,6 +76,7 @@ func subWorker(td time.Duration, workers int, tcpAddr string, topic string, chan
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
 	ci := make(map[string]interface{})
 	ci["client_id"] = "test"
+	ci["user_agent"] = "disable-fin"
 	cmd, _ := nsq.Identify(ci)
 	cmd.WriteTo(rw)
 	nsq.Subscribe(topic, channel).WriteTo(rw)
