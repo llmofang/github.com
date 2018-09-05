@@ -9,9 +9,9 @@ var (
 	// DefaultTimeout is how long to wait for command to complete, in milliseconds
 	DefaultTimeout = 5000
 	// DefaultMaxConcurrent is how many commands of the same type can run at the same time
-	DefaultMaxConcurrent = 10
+	DefaultMaxConcurrent = 10000
 	// DefaultVolumeThreshold is the minimum number of requests needed before a circuit can be tripped due to health
-	DefaultVolumeThreshold = 20
+	DefaultVolumeThreshold = 200
 	// DefaultSleepWindow is how long, in milliseconds, to wait after a circuit opens before testing for recovery
 	DefaultSleepWindow = 5000
 	// DefaultErrorPercentThreshold causes circuits to open once the rolling measure of errors exceeds this percent of requests
